@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Local Expense Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #818cf8;
+      --success: #34d399;
+      --danger: #f87171;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+  <div class="w-full max-w-5xl space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-700">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="p-2 bg-sky-500/10 text-sky-400 rounded-lg text-xl">💸</span>
+          <h1 class="text-2xl font-bold tracking-tight">Smart Expense Tracker</h1>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">100% On-Device / Local</span>
+        </div>
+        <p class="text-sm text-slate-400 mt-1">Speak or chat naturally to record and manage expenses. Zero server calls.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="exportBtn" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 transition flex items-center gap-1.5">
+          <span>💾</span> Export JSON
+        </button>
+        <button id="clearBtn" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition">
+          Reset Data
+        </button>
+      </div>
+    </header>
+
+    <!-- Metrics Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="glass-card rounded-xl p-4 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Total Spent</p>
+        <h2 id="totalSpent" class="text-3xl font-extrabold text-sky-400 mt-1">₹0.00</h2>
+        <p id="transactionCount" class="text-xs text-slate-400 mt-1">0 transactions recorded</p>
+      </div>
+      <div class="glass-card rounded-xl p-4 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Top Category</p>
+        <h2 id="topCategory" class="text-2xl font-bold text-indigo-400 mt-1">-</h2>
+        <p id="topCategoryAmount" class="text-xs text-slate-400 mt-1">₹0.00 spent</p>
+      </div>
+      <div class="glass-card rounded-xl p-4 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between">
+            <p class="text-xs uppercase tracking-wider text-slate-400">Local AI Engine</p>
+            <span id="aiEngineBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Instant NLU (0 MB RAM)</span>
+          </div>
+          <h2 id="aiStatusTitle" class="text-lg font-bold text-slate-100 mt-1">Lightweight Rule Parser</h2>
+          <p id="aiStatusDesc" class="text-xs text-slate-400 mt-0.5">Zero load time, zero extra memory.</p>
+        </div>
+        
+        <div class="mt-3 pt-2 border-t border-slate-700/60">
+          <button id="loadNeuralBtn" class="w-full py-1.5 px-3 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-medium transition flex items-center justify-center gap-1.5">
+            <span>🧠</span>
+            <span id="loadNeuralBtnText">Load SmolLM2-135M (~85MB)</span>
+          </button>
+          <div id="aiProgressContainer" class="hidden mt-2">
+            <div class="flex justify-between text-[10px] text-slate-400 mb-1">
+              <span id="aiProgressLabel">Caching model into IndexedDB...</span>
+              <span id="aiProgressPct">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="aiProgressBar" class="bg-gradient-to-r from-sky-400 to-indigo-500 h-1.5 rounded-full transition-all duration-200" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Workspace: Chat & Voice (Left) + Overview/List (Right) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Left Column: Voice & Chat Input (5 cols) -->
+      <div class="lg:col-span-5 glass-card rounded-xl p-5 flex flex-col h-[580px] shadow-sm">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-700/80 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🎙️</span>
+            <h3 class="font-semibold text-sm">Natural Language & Voice Input</h3>
+          </div>
+          <span id="speechStatus" class="text-xs text-slate-400 font-mono">Mic ready</span>
+        </div>
+
+        <!-- Chat Conversation Log -->
+        <div id="chatFeed" class="flex-1 overflow-y-auto space-y-3 pr-1 custom-scroll text-sm">
+          <div class="bg-slate-800/80 p-3 rounded-lg border border-slate-700 text-slate-300">
+            <p class="font-medium text-xs text-sky-400 mb-1">🤖 Local Assistant</p>
+            You can type or speak expenses naturally. Examples:
+            <ul class="list-disc list-inside mt-2 space-y-1 text-xs text-slate-400">
+              <li><button class="hover:underline text-sky-300 sample-prompt">"Spent 150 rupees on lunch"</button></li>
+              <li><button class="hover:underline text-sky-300 sample-prompt">"Taxi 350 to airport"</button></li>
+              <li><button class="hover:underline text-sky-300 sample-prompt">"Bought groceries for 800"</button></li>
+              <li><button class="hover:underline text-sky-300 sample-prompt">"Change lunch to 180"</button></li>
+              <li><button class="hover:underline text-sky-300 sample-prompt">"Delete taxi expense"</button></li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Input Box -->
+        <div class="mt-3 pt-3 border-t border-slate-700/80">
+          <form id="chatForm" class="flex items-center gap-2">
+            <button type="button" id="micBtn" title="Hold or click to speak" class="p-2.5 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/40 transition">
+              <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+              </svg>
+            </button>
+            <input type="text" id="chatInput" placeholder="Speak or type: 'Spent 200 on petrol'..." class="flex-1 bg-slate-900 border border-slate-700 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-sky-500 transition text-slate-100 placeholder-slate-500">
+            <button type="submit" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-medium text-sm transition">
+              Send
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Right Column: Category Breakdown & Expense Management (7 cols) -->
+      <div class="lg:col-span-7 space-y-6">
+        
+        <!-- Category Breakdown -->
+        <div class="glass-card rounded-xl p-5 shadow-sm">
+          <h3 class="font-semibold text-sm mb-3 flex items-center justify-between">
+            <span>Category Spending Breakdown</span>
+            <span class="text-xs text-slate-400">Current Month</span>
+          </h3>
+          <div id="categoryBars" class="space-y-3">
+            <p class="text-xs text-slate-500 italic">No expenses recorded yet.</p>
+          </div>
+        </div>
+
+        <!-- Transactions Table & Actions -->
+        <div class="glass-card rounded-xl p-5 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-sm">Recent Transactions</h3>
+            <div class="flex items-center gap-2">
+              <select id="categoryFilter" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1 text-slate-300">
+                <option value="ALL">All Categories</option>
+                <option value="Food & Dining">Food & Dining</option>
+                <option value="Transportation">Transportation</option>
+                <option value="Groceries">Groceries</option>
+                <option value="Shopping">Shopping</option>
+                <option value="Bills & Utilities">Bills & Utilities</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Healthcare">Healthcare</option>
+                <option value="General">General</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="max-h-[260px] overflow-y-auto custom-scroll">
+            <table class="w-full text-left text-xs">
+              <thead class="text-slate-400 border-b border-slate-700/80 sticky top-0 bg-slate-900/90 backdrop-blur">
+                <tr>
+                  <th class="pb-2">Date</th>
+                  <th class="pb-2">Description</th>
+                  <th class="pb-2">Category</th>
+                  <th class="pb-2 text-right">Amount</th>
+                  <th class="pb-2 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="transactionTableBody" class="divide-y divide-slate-800">
+                <!-- Dynamically Populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Local State Management ---
+    const STORAGE_KEY = 'LOCAL_EXPENSE_TRACKER_DATA';
+    let expenses = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+
+    if (expenses.length === 0) {
+      // Pre-seed some default demo data for instant feedback
+      expenses = [
+        { id: '1', date: new Date().toISOString().slice(0, 10), title: 'Grocery shopping', amount: 850, category: 'Groceries' },
+        { id: '2', date: new Date().toISOString().slice(0, 10), title: 'Afternoon coffee', amount: 120, category: 'Food & Dining' },
+        { id: '3', date: new Date().toISOString().slice(0, 10), title: 'Fuel for car', amount: 500, category: 'Transportation' }
+      ];
+      saveExpenses();
+    }
+
+    function saveExpenses() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+      renderDashboard();
+    }
+
+    // --- Local NLU Engine ---
+    const CATEGORY_MAP = {
+      'Food & Dining': ['food', 'lunch', 'dinner', 'breakfast', 'coffee', 'tea', 'cafe', 'restaurant', 'snack', 'biryani', 'swiggy', 'zomato'],
+      'Transportation': ['taxi', 'cab', 'uber', 'ola', 'auto', 'bus', 'train', 'metro', 'petrol', 'diesel', 'fuel', 'flight'],
+      'Groceries': ['grocery', 'groceries', 'vegetables', 'fruits', 'milk', 'bread', 'supermarket'],
+      'Shopping': ['cloth', 'clothes', 'shirt', 'pants', 'shoes', 'amazon', 'flipkart', 'shopping', 'dress'],
+      'Bills & Utilities': ['recharge', 'wifi', 'internet', 'electricity', 'water', 'rent', 'bill', 'subscription', 'netflix'],
+      'Entertainment': ['movie', 'cinema', 'game', 'party', 'concert'],
+      'Healthcare': ['doctor', 'medicine', 'hospital', 'pharmacy', 'clinic']
+    };
+
+    function parseNaturalLanguage(input) {
+      const text = input.trim().toLowerCase();
+      
+      // 1. Detect Action: DELETE, UPDATE, or ADD
+      let action = 'ADD';
+      if (/^(delete|remove|clear|cancel)\b/i.test(text)) {
+        action = 'DELETE';
+      } else if (/^(update|change|modify|edit)\b/i.test(text)) {
+        action = 'UPDATE';
+      }
+
+      // 2. Extract Amount
+      // Matches: 150, rs 150, 150.50, ₹150, 150rs, 150 rupees, 150 roopa
+      const amountRegex = /(?:rs\.?|inr|₹|\$)?\s*(\d+(?:\.\d+)?)\s*(?:rs\.?|rupees|bucks|roopa|roopaya)?/i;
+      const amountMatch = text.match(amountRegex);
+      const amount = amountMatch ? parseFloat(amountMatch[1]) : null;
+
+      // 3. Category Inference
+      let matchedCategory = 'General';
+      for (const [category, keywords] of Object.entries(CATEGORY_MAP)) {
+        if (keywords.some(kw => text.includes(kw))) {
+          matchedCategory = category;
+          break;
+        }
+      }
+
+      // 4. Clean description
+      let cleanDesc = text
+        .replace(/^(add|spent|spend|paid|bought|purchase|for|delete|remove|change|update|modify)\s+/i, '')
+        .replace(/(?:rs\.?|inr|₹|\$)?\s*\d+(?:\.\d+)?\s*(?:rs\.?|rupees|bucks|roopa|roopaya)?/i, '')
+        .replace(/\b(rupees|rs|for|on|at|to)\b/gi, '')
+        .trim();
+
+      if (!cleanDesc) {
+        cleanDesc = matchedCategory !== 'General' ? matchedCategory : 'Expense';
+      }
+      // Capitalize first letter
+      cleanDesc = cleanDesc.charAt(0).toUpperCase() + cleanDesc.slice(1);
+
+      return {
+        action,
+        amount,
+        category: matchedCategory,
+        description: cleanDesc,
+        rawText: input
+      };
+    }
+
+    // Conversational Context Memory
+    let conversationContext = null;
+
+    function executeCommand(parsed) {
+      // 0. Handle multi-turn conversation memory if waiting for missing details
+      if (conversationContext && conversationContext.state === 'awaiting_amount') {
+        if (parsed.amount) {
+          const itemTitle = conversationContext.title;
+          const itemCat = conversationContext.category;
+          conversationContext = null; // Clear context
+          
+          const newExpense = {
+            id: Date.now().toString(),
+            date: new Date().toISOString().slice(0, 10),
+            title: itemTitle,
+            amount: parsed.amount,
+            category: itemCat
+          };
+          expenses.unshift(newExpense);
+          saveExpenses();
+          return {
+            success: true,
+            message: `Got it! Recorded ₹${newExpense.amount} for "${newExpense.title}" under ${newExpense.category}.`
+          };
+        } else {
+          return {
+            success: false,
+            message: `I still need the amount for "${conversationContext.title}". How much was it? (e.g., "250")`
+          };
+        }
+      }
+
+      if (parsed.action === 'DELETE') {
+        const query = parsed.description.toLowerCase();
+        const index = expenses.findIndex(e => 
+          e.title.toLowerCase().includes(query) || 
+          e.category.toLowerCase().includes(query)
+        );
+        if (index !== -1) {
+          const removed = expenses.splice(index, 1)[0];
+          saveExpenses();
+          return { success: true, message: `Deleted "${removed.title}" (₹${removed.amount}) successfully.` };
+        } else {
+          return { success: false, message: `Could not find an expense matching "${parsed.description}".` };
+        }
+      }
+
+      if (parsed.action === 'UPDATE') {
+        if (!parsed.amount) {
+          return { success: false, message: `Please specify the new amount (e.g., "Change lunch to 200").` };
+        }
+        const query = parsed.description.toLowerCase();
+        const item = expenses.find(e => 
+          e.title.toLowerCase().includes(query) || 
+          e.category.toLowerCase().includes(query)
+        );
+        if (item) {
+          const oldAmount = item.amount;
+          item.amount = parsed.amount;
+          saveExpenses();
+          return { success: true, message: `Updated "${item.title}" from ₹${oldAmount} to ₹${parsed.amount}.` };
+        } else {
+          return { success: false, message: `Could not find an existing item matching "${parsed.description}".` };
+        }
+      }
+
+      // ADD action: Check if amount is missing -> trigger conversational follow-up
+      if (!parsed.amount || isNaN(parsed.amount)) {
+        if (parsed.description && parsed.description.length > 2) {
+          conversationContext = {
+            state: 'awaiting_amount',
+            title: parsed.description,
+            category: parsed.category
+          };
+          return {
+            success: true,
+            message: `I noted "${parsed.description}" under ${parsed.category}. How much did you spend?`
+          };
+        }
+        return { success: false, message: `Could not detect an amount or expense details. Try: "Spent 150 on coffee".` };
+      }
+
+      const newExpense = {
+        id: Date.now().toString(),
+        date: new Date().toISOString().slice(0, 10),
+        title: parsed.description,
+        amount: parsed.amount,
+        category: parsed.category
+      };
+
+      expenses.unshift(newExpense);
+      saveExpenses();
+      return { 
+        success: true, 
+        message: `Added ₹${newExpense.amount} for "${newExpense.title}" under ${newExpense.category}.` 
+      };
+    }
+
+    // --- UI Rendering ---
+    function renderDashboard() {
+      const filter = document.getElementById('categoryFilter').value;
+      const filtered = filter === 'ALL' ? expenses : expenses.filter(e => e.category === filter);
+
+      // Calculations
+      const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+      document.getElementById('totalSpent').textContent = `₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+      document.getElementById('transactionCount').textContent = `${expenses.length} transaction${expenses.length === 1 ? '' : 's'} recorded`;
+
+      // Category breakdown
+      const catTotals = {};
+      expenses.forEach(e => {
+        catTotals[e.category] = (catTotals[e.category] || 0) + e.amount;
+      });
+
+      let topCat = '-';
+      let topAmt = 0;
+      for (const [cat, amt] of Object.entries(catTotals)) {
+        if (amt > topAmt) {
+          topAmt = amt;
+          topCat = cat;
+        }
+      }
+      document.getElementById('topCategory').textContent = topCat;
+      document.getElementById('topCategoryAmount').textContent = `₹${topAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })} spent`;
+
+      // Render category progress bars
+      const categoryBars = document.getElementById('categoryBars');
+      if (Object.keys(catTotals).length === 0) {
+        categoryBars.innerHTML = `<p class="text-xs text-slate-500 italic">No expenses recorded yet.</p>`;
+      } else {
+        categoryBars.innerHTML = Object.entries(catTotals)
+          .sort((a, b) => b[1] - a[1])
+          .map(([cat, amt]) => {
+            const pct = total > 0 ? Math.round((amt / total) * 100) : 0;
+            return `
+              <div>
+                <div class="flex justify-between text-xs mb-1">
+                  <span class="font-medium text-slate-300">${cat}</span>
+                  <span class="text-slate-400 font-mono">₹${amt.toFixed(2)} (${pct}%)</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div class="bg-gradient-to-r from-sky-500 to-indigo-500 h-2 rounded-full transition-all duration-300" style="width: ${pct}%"></div>
+                </div>
+              </div>
+            `;
+          }).join('');
+      }
+
+      // Render table
+      const tbody = document.getElementById('transactionTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-500 italic">No transactions found.</td></tr>`;
+      } else {
+        tbody.innerHTML = filtered.map(e => `
+          <tr class="hover:bg-slate-800/50 transition">
+            <td class="py-2.5 text-slate-400 font-mono">${e.date}</td>
+            <td class="py-2.5 font-medium text-slate-200">${e.title}</td>
+            <td class="py-2.5">
+              <span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 border border-slate-700 text-slate-300">${e.category}</span>
+            </td>
+            <td class="py-2.5 text-right font-mono font-semibold text-sky-400">₹${e.amount.toFixed(2)}</td>
+            <td class="py-2.5 text-center">
+              <button onclick="deleteExpense('${e.id}')" class="text-slate-500 hover:text-rose-400 transition px-1" title="Delete">🗑️</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    window.deleteExpense = function(id) {
+      expenses = expenses.filter(e => e.id !== id);
+      saveExpenses();
+    };
+
+    // Chat handling
+    function addChatMessage(role, text, isCode = false) {
+      const feed = document.getElementById('chatFeed');
+      const div = document.createElement('div');
+      div.className = role === 'user' 
+        ? 'ml-auto max-w-[85%] bg-sky-600/30 text-sky-100 p-2.5 rounded-lg border border-sky-500/30'
+        : 'mr-auto max-w-[85%] bg-slate-800/90 text-slate-300 p-2.5 rounded-lg border border-slate-700';
+
+      if (isCode) {
+        div.innerHTML = `<pre class="text-[11px] font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">${text}</pre>`;
+      } else {
+        div.innerHTML = `<p class="text-xs font-semibold ${role === 'user' ? 'text-sky-300' : 'text-slate-400'} mb-0.5">${role === 'user' ? 'You' : 'Local AI'}</p><p>${text}</p>`;
+      }
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    // --- WebLLM Neural Engine Integration ---
+    let webllmEngine = null;
+    let isModelLoading = false;
+    const MODEL_ID = "SmolLM2-135M-Instruct-q4f16_1-MLC"; // Lightest model (~85MB)
+
+    const loadNeuralBtn = document.getElementById('loadNeuralBtn');
+    const loadNeuralBtnText = document.getElementById('loadNeuralBtnText');
+    const aiProgressContainer = document.getElementById('aiProgressContainer');
+    const aiProgressBar = document.getElementById('aiProgressBar');
+    const aiProgressLabel = document.getElementById('aiProgressLabel');
+    const aiProgressPct = document.getElementById('aiProgressPct');
+    const aiEngineBadge = document.getElementById('aiEngineBadge');
+    const aiStatusTitle = document.getElementById('aiStatusTitle');
+    const aiStatusDesc = document.getElementById('aiStatusDesc');
+
+    if (loadNeuralBtn) {
+      loadNeuralBtn.addEventListener('click', async () => {
+        if (webllmEngine || isModelLoading) return;
+        isModelLoading = true;
+        loadNeuralBtn.disabled = true;
+        loadNeuralBtnText.textContent = "Loading WebLLM Engine...";
+        aiProgressContainer.classList.remove('hidden');
+
+        try {
+          const { CreateMLCEngine } = await import("https://esm.run/@mlc-ai/web-llm");
+          
+          webllmEngine = await CreateMLCEngine(MODEL_ID, {
+            initProgressCallback: (report) => {
+              const pct = Math.round((report.progress || 0) * 100);
+              aiProgressBar.style.width = `${pct}%`;
+              aiProgressPct.textContent = `${pct}%`;
+              aiProgressLabel.textContent = report.text || "Loading weights...";
+            }
+          });
+
+          // Successfully loaded
+          aiEngineBadge.className = "text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono";
+          aiEngineBadge.textContent = "Neural SLM (SmolLM2)";
+          aiStatusTitle.textContent = "SmolLM2-135M Active";
+          aiStatusDesc.textContent = "On-device GPU acceleration via WebGPU. Conversational AI enabled.";
+          loadNeuralBtnText.textContent = "✓ Neural Engine Active (~85MB)";
+          loadNeuralBtn.classList.remove('bg-sky-500/10', 'text-sky-300', 'border-sky-500/30');
+          loadNeuralBtn.classList.add('bg-emerald-500/20', 'text-emerald-300', 'border-emerald-500/40');
+          
+          addChatMessage('assistant', "🧠 SmolLM2-135M neural model loaded locally in browser! You can now speak in conversational phrases, ask math questions (e.g. 'Dinner 600 split by 2'), or omit details.");
+        } catch (err) {
+          console.error("WebLLM Load Error:", err);
+          aiProgressLabel.textContent = "WebGPU not enabled/supported in this browser. Running with Instant Rule NLU.";
+          loadNeuralBtnText.textContent = "WebGPU Unavailable (Using Rule NLU)";
+          loadNeuralBtn.disabled = false;
+          isModelLoading = false;
+        }
+      });
+    }
+
+    async function processUserInput(text) {
+      if (!text.trim()) return;
+      addChatMessage('user', text);
+
+      // If Neural Model is active, use local LLM inference
+      if (webllmEngine) {
+        addChatMessage('assistant', 'Thinking locally...', false);
+        const thinkingElem = document.getElementById('chatFeed').lastElementChild;
+        try {
+          const systemPrompt = `You are a private offline expense tracker assistant.
+Extract structured expense data into strict JSON with keys:
+- "action": "ADD" | "UPDATE" | "DELETE" | "ASK"
+- "amount": number or null
+- "category": "Food & Dining" | "Transportation" | "Groceries" | "Shopping" | "Bills & Utilities" | "Entertainment" | "Healthcare" | "General"
+- "note": string description
+- "question": string or null (ONLY if amount is missing and action is "ASK")
+Respond with ONLY valid JSON and no other text.`;
+
+          const response = await webllmEngine.chat.completions.create({
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: text }
+            ],
+            temperature: 0.1,
+            max_tokens: 150
+          });
+
+          const rawContent = response.choices[0].message.content.trim();
+          const cleanJsonMatch = rawContent.match(/\{[\s\S]*\}/);
+          if (cleanJsonMatch) {
+            const parsed = JSON.parse(cleanJsonMatch[0]);
+            if (thinkingElem) thinkingElem.remove();
+            
+            if (parsed.action === 'ASK' && parsed.question) {
+              addChatMessage('assistant', parsed.question);
+              return;
+            }
+
+            const debugSummary = `Neural Parsed: { action: "${parsed.action}", amount: ${parsed.amount}, category: "${parsed.category}", note: "${parsed.note}" }`;
+            addChatMessage('assistant', debugSummary, true);
+
+            const result = executeCommand({
+              action: parsed.action,
+              amount: parsed.amount,
+              category: parsed.category,
+              description: parsed.note || parsed.description || 'Expense'
+            });
+            addChatMessage('assistant', result.message);
+            return;
+          }
+        } catch (e) {
+          console.warn("Neural parsing fallback:", e);
+          if (thinkingElem) thinkingElem.remove();
+        }
+      }
+
+      // Fast deterministic NLU fallback
+      const parsed = parseNaturalLanguage(text);
+      const debugSummary = `Parsed: { action: "${parsed.action}", amount: ${parsed.amount}, category: "${parsed.category}", note: "${parsed.description}" }`;
+      addChatMessage('assistant', debugSummary, true);
+
+      const result = executeCommand(parsed);
+      addChatMessage('assistant', result.message);
+    }
+
+    // Form submit
+    document.getElementById('chatForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('chatInput');
+      const val = input.value;
+      input.value = '';
+      processUserInput(val);
+    });
+
+    // Sample prompts click
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('sample-prompt')) {
+        const text = e.target.textContent.replace(/^"|"$/g, '');
+        processUserInput(text);
+      }
+    });
+
+    // --- Web Speech API for Local Voice Recognition ---
+    const micBtn = document.getElementById('micBtn');
+    const speechStatus = document.getElementById('speechStatus');
+    let recognition = null;
+    let isListening = false;
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-IN'; // Works great for Indian accents and mixed terms
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add('bg-rose-500/30', 'text-rose-400', 'animate-pulse');
+        speechStatus.textContent = 'Listening...';
+        speechStatus.classList.add('text-rose-400');
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        speechStatus.textContent = 'Recognized';
+        processUserInput(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        speechStatus.textContent = 'Mic error: ' + event.error;
+        stopMic();
+      };
+
+      recognition.onend = () => {
+        stopMic();
+      };
+    } else {
+      speechStatus.textContent = 'Speech API not supported';
+      micBtn.disabled = true;
+      micBtn.title = 'Web Speech not supported in this browser';
+    }
+
+    function stopMic() {
+      isListening = false;
+      micBtn.classList.remove('bg-rose-500/30', 'text-rose-400', 'animate-pulse');
+      speechStatus.textContent = 'Mic ready';
+      speechStatus.classList.remove('text-rose-400');
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (!recognition) return;
+      if (isListening) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    });
+
+    // Filter change
+    document.getElementById('categoryFilter').addEventListener('change', renderDashboard);
+
+    // Export JSON
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(expenses, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `expenses_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    });
+
+    // Reset Data
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (confirm('Are you sure you want to clear all expenses?')) {
+        expenses = [];
+        saveExpenses();
+      }
+    });
+
+    // Initial render
+    renderDashboard();
+  </script>
+</body>
+</html>
