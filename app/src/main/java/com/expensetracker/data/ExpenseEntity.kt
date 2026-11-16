@@ -17,7 +17,10 @@ data class ExpenseEntity(
     val source: String = "MANUAL", // "MANUAL" or "SMS"
     val merchant: String? = null,
     val isCategorized: Boolean = true,
-    val smsRefId: String? = null
+    val smsRefId: String? = null,
+    val transactionType: String = "EXPENSE", // "EXPENSE" or "INCOME"
+    val accountType: String = "BANK_ACCOUNT", // "BANK_ACCOUNT", "CREDIT_CARD", "UPI", "CASH"
+    val accountName: String? = null
 ) {
     val formattedDate: String
         get() = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(timestamp))

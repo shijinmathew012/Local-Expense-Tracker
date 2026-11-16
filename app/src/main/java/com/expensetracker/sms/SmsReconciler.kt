@@ -14,7 +14,10 @@ data class RawSmsTransaction(
     val merchant: String,
     val timestamp: Long,
     val rawBody: String,
-    val matchedBill: BillEntity? = null
+    val matchedBill: BillEntity? = null,
+    val transactionType: String = "EXPENSE", // "EXPENSE" or "INCOME"
+    val accountType: String = "BANK_ACCOUNT", // "BANK_ACCOUNT", "CREDIT_CARD", "UPI"
+    val accountName: String = "Bank Account"
 )
 
 class SmsReconciler(
@@ -70,13 +73,42 @@ class SmsReconciler(
     private fun parseDebitSms(body: String, timestamp: Long): RawSmsTransaction? {
         val lower = body.lowercase(Locale.ENGLISH)
 
-        // Must indicate a payment or debit
+        // Ignore OTPs, failed, or spam alerts
+        if (lower.contains("failed") || lower.contains("declined") || lower.contains("otp") || lower.contains("login")) {
+            return null
+        }
+
+        // Detect Income vs Expense
+        val isCredit = lower.contains("credited") || lower.contains("received") || 
+                       lower.contains("salary") || lower.contains("deposited") || 
+                       lower.contains("refund") || lower.contains("cashback")
+
         val isDebit = lower.contains("debited") || lower.contains("spent") || 
                       lower.contains("paid") || lower.contains("sent") ||
-                      lower.contains("vpa") || lower.contains("upi")
+                      lower.contains("vpa") || lower.contains("purchase") ||
+                      lower.contains("withdrawn")
 
-        if (!isDebit || lower.contains("failed") || lower.contains("declined")) {
+        if (!isCredit && !isDebit) {
             return null
+        }
+
+        val transactionType = if (isCredit) "INCOME" else "EXPENSE"
+
+        // Account Detection: Credit Card vs Bank Account vs UPI
+        val isCreditCard = lower.contains("credit card") || lower.contains("card ending") || 
+                           lower.contains("card no") || lower.contains("card xx")
+        val isUpi = lower.contains("upi") || lower.contains("vpa")
+
+        val accountType = when {
+            isCreditCard -> "CREDIT_CARD"
+            isUpi -> "UPI"
+            else -> "BANK_ACCOUNT"
+        }
+
+        val accountName = when {
+            isCreditCard -> "Credit Card"
+            isUpi -> "UPI Account"
+            else -> "Bank Account"
         }
 
         // Amount Regex: Rs. 450, INR 450, ₹ 450
@@ -86,15 +118,18 @@ class SmsReconciler(
         val amount = amountStr.toDoubleOrNull() ?: return null
 
         // Merchant / Beneficiary extraction
-        val merchantRegex = Regex("""(?:to|at|vpa|info)\s+([A-Za-z0-9\._@\-]+)""", RegexOption.IGNORE_CASE)
+        val merchantRegex = Regex("""(?:to|at|vpa|info|from)\s+([A-Za-z0-9\._@\-]+)""", RegexOption.IGNORE_CASE)
         val merchantMatch = merchantRegex.find(body)
-        val merchant = merchantMatch?.groupValues?.get(1)?.trim() ?: "Merchant"
+        val merchant = merchantMatch?.groupValues?.get(1)?.trim() ?: if (isCredit) "Income Source" else "Merchant"
 
         return RawSmsTransaction(
             amount = amount,
             merchant = merchant,
             timestamp = timestamp,
-            rawBody = body
+            rawBody = body,
+            transactionType = transactionType,
+            accountType = accountType,
+            accountName = accountName
         )
     }
 
@@ -110,7 +145,10 @@ class SmsReconciler(
             timestamp = tx.timestamp,
             source = "SMS",
             merchant = tx.merchant,
-            isCategorized = true
+            isCategorized = true,
+            transactionType = tx.transactionType,
+            accountType = tx.accountType,
+            accountName = tx.accountName
         )
         val id = expenseDao.insert(expense)
         return expense.copy(id = id)

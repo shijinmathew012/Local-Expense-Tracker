@@ -6,6 +6,10 @@
     
     <!-- Reading bank SMS for on-launch expense & bill reconciliation -->
     <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <!-- Internet permission for downloading on-device Local LLM on first launch -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Daily reminder notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -33,6 +37,16 @@
         <receiver
             android:name=".reminder.DailyReminderReceiver"
             android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

@@ -13,8 +13,17 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<ExpenseEntity>>
 
-    @Query("SELECT SUM(amount) FROM expenses")
+    @Query("SELECT SUM(amount) FROM expenses WHERE transactionType = 'EXPENSE'")
     fun getTotalSpent(): Flow<Double?>
+
+    @Query("SELECT SUM(amount) FROM expenses WHERE transactionType = 'INCOME'")
+    fun getTotalIncome(): Flow<Double?>
+
+    @Query("SELECT * FROM expenses WHERE transactionType = 'LENT' ORDER BY timestamp DESC")
+    fun getLentTransactions(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT SUM(amount) FROM expenses WHERE transactionType = 'LENT'")
+    fun getTotalLent(): Flow<Double?>
 
     @Query("SELECT * FROM expenses WHERE LOWER(title) LIKE '%' || LOWER(:query) || '%' LIMIT 1")
     suspend fun findFirstMatching(query: String): ExpenseEntity?

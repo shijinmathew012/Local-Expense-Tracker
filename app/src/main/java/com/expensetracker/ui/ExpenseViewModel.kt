@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.expensetracker.ai.LocalExpenseParser
+import com.expensetracker.ai.LocalLlmManager
+import com.expensetracker.ai.ModelDownloadState
 import com.expensetracker.data.AppDatabase
 import com.expensetracker.data.BillEntity
 import com.expensetracker.data.ExpenseEntity
@@ -32,12 +34,44 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val billDao = db.billDao()
     private val parser = LocalExpenseParser(expenseDao)
     private val smsReconciler = SmsReconciler(application, expenseDao, billDao)
+    val localLlmManager = LocalLlmManager(application)
+
+    val isLlmEnabled: StateFlow<Boolean> = localLlmManager.isLlmEnabled
+    val llmDownloadState: StateFlow<ModelDownloadState> = localLlmManager.downloadState
+
+    fun toggleLlm(enabled: Boolean) {
+        localLlmManager.setLlmEnabled(enabled)
+    }
+
+    fun retryLlmDownload() {
+        localLlmManager.downloadModelInBackground()
+    }
 
     val expenses: StateFlow<List<ExpenseEntity>> = expenseDao.getAllExpenses()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val totalSpent: StateFlow<Double?> = expenseDao.getTotalSpent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val totalIncome: StateFlow<Double?> = expenseDao.getTotalIncome()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    private val prefs = application.getSharedPreferences("app_settings_prefs", Context.MODE_PRIVATE)
+    private val _currencySymbol = MutableStateFlow(prefs.getString("selected_currency", "₹") ?: "₹")
+    val currencySymbol: StateFlow<String> = _currencySymbol.asStateFlow()
+
+    fun setCurrency(symbol: String) {
+        prefs.edit().putString("selected_currency", symbol).apply()
+        _currencySymbol.value = symbol
+    }
+
+    private val _smsLookbackDays = MutableStateFlow(prefs.getInt("sms_lookback_days", 7))
+    val smsLookbackDays: StateFlow<Int> = _smsLookbackDays.asStateFlow()
+
+    fun setSmsLookbackDays(days: Int) {
+        prefs.edit().putInt("sms_lookback_days", days).apply()
+        _smsLookbackDays.value = days
+    }
 
     val bills: StateFlow<List<BillEntity>> = billDao.getAllBills()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -50,6 +84,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     init {
         // Schedule daily 9:00 PM reminder
         ReminderScheduler.scheduleDailyReminder(application, hour = 21, minute = 0)
+
+        // Check if on-device Local LLM needs first-launch download to app directory
+        localLlmManager.checkFirstLaunchDownload()
 
         // Seed demo bills if empty
         viewModelScope.launch {
@@ -161,8 +198,12 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
 
-            // Normal voice/text expense parsing
-            val parsed = parser.parse(text)
+            // Expense parsing: either with on-device Local LLM (if enabled) or standard parser
+            val parsed = if (localLlmManager.isLlmEnabled.value && localLlmManager.isModelReady()) {
+                localLlmManager.parseWithLlm(text)
+            } else {
+                parser.parse(text)
+            }
             val resultMessage = parser.execute(parsed)
 
             val updated = _chatMessages.value.toMutableList()
@@ -204,12 +245,74 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         return expenseList.filter { it.timestamp >= weekAgo }.sumOf { it.amount }
     }
 
-    fun getMonthlySpend(expenseList: List<ExpenseEntity>): Double {
+    val lentExpenses: StateFlow<List<ExpenseEntity>> = expenseDao.getLentTransactions()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalLent: StateFlow<Double?> = expenseDao.getTotalLent()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    fun recordLentAmount(personName: String, amount: Double, note: String = "Lent") {
+        viewModelScope.launch {
+            val lent = ExpenseEntity(
+                title = "Lent to $personName",
+                amount = amount,
+                category = "Receivables / Lent",
+                merchant = personName,
+                transactionType = "LENT",
+                accountType = "BANK_ACCOUNT",
+                accountName = "Primary Account"
+            )
+            expenseDao.insert(lent)
+        }
+    }
+
+    fun markLentSettled(expense: ExpenseEntity) {
+        viewModelScope.launch {
+            expenseDao.delete(expense)
+        }
+    }
+
+    fun exportToCsv(context: android.content.Context): java.io.File {
+        val file = java.io.File(context.cacheDir, "ExpenseTracker_Export_${System.currentTimeMillis()}.csv")
+        file.bufferedWriter().use { writer ->
+            writer.write("ID,Date & Time,Type,Title,Amount,Category,Account,Merchant\n")
+            for (item in expenses.value) {
+                val line = "${item.id},\"${item.formattedDate}\",\"${item.transactionType}\",\"${item.title}\",${item.amount},\"${item.category}\",\"${item.accountName ?: item.accountType}\",\"${item.merchant ?: ""}\"\n"
+                writer.write(line)
+            }
+        }
+        return file
+    }
+
+    fun getWeeklyCategoryBreakdown(expenseList: List<ExpenseEntity>): Map<String, Double> {
+        val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }
+        val weekAgo = cal.timeInMillis
+        return expenseList
+            .filter { it.timestamp >= weekAgo && it.transactionType == "EXPENSE" }
+            .groupBy { it.category }
+            .mapValues { (_, list) -> list.sumOf { it.amount } }
+    }
+
+    fun getMonthlyCategoryBreakdown(expenseList: List<ExpenseEntity>): Map<String, Double> {
         val cal = Calendar.getInstance().apply {
             set(Calendar.DAY_OF_MONTH, 1)
             set(Calendar.HOUR_OF_DAY, 0)
         }
         val monthStart = cal.timeInMillis
-        return expenseList.filter { it.timestamp >= monthStart }.sumOf { it.amount }
+        return expenseList
+            .filter { it.timestamp >= monthStart && it.transactionType == "EXPENSE" }
+            .groupBy { it.category }
+            .mapValues { (_, list) -> list.sumOf { it.amount } }
+    }
+
+    fun getMonthlyIncome(expenseList: List<ExpenseEntity>): Double {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+        }
+        val monthStart = cal.timeInMillis
+        return expenseList
+            .filter { it.timestamp >= monthStart && it.transactionType == "INCOME" }
+            .sumOf { it.amount }
     }
 }
