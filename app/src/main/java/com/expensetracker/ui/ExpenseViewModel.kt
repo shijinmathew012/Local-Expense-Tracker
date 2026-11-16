@@ -1,6 +1,7 @@
 package com.expensetracker.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.expensetracker.ai.LocalExpenseParser
@@ -303,6 +304,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             .filter { it.timestamp >= monthStart && it.transactionType == "EXPENSE" }
             .groupBy { it.category }
             .mapValues { (_, list) -> list.sumOf { it.amount } }
+    }
+
+    fun getMonthlySpend(expenseList: List<ExpenseEntity>): Double {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+        }
+        val monthStart = cal.timeInMillis
+        return expenseList
+            .filter { it.timestamp >= monthStart && it.transactionType == "EXPENSE" }
+            .sumOf { it.amount }
     }
 
     fun getMonthlyIncome(expenseList: List<ExpenseEntity>): Double {

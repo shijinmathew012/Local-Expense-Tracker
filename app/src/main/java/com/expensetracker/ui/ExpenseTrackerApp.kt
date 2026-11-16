@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.expensetracker.data.BillEntity
 import com.expensetracker.data.ExpenseEntity
 import com.expensetracker.ai.ModelDownloadState
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
